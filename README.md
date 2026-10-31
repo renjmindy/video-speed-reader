@@ -12,7 +12,7 @@ The site must include:
      * Card 3: "可商用授權 (Commercial-use ready)" — you own the output, use it however you like
    - Footer with copyright "© 2026 Video Speed Reader"
 
-2. Authentication using Lovable's built-in Supabase-style auth (use whatever auth backend Lovable provides by default — Lovable Cloud is fine for this v1; we'll swap to a user-owned Supabase project in a later step):
+2. Authentication using Supabase Auth (email + password) against your own Supabase project:
    - Sign Up page with email + password
    - Sign In page with email + password
    - Sign Out functionality
@@ -51,3 +51,12 @@ cd <repository-name>
 npm i
 npm run dev
 ```
+
+## Environment variables
+
+The app reads its Supabase connection from these variables (see `.env`):
+
+- `VITE_SUPABASE_URL`: your Supabase project URL
+- `VITE_SUPABASE_PUBLISHABLE_KEY`: your project's `sb_publishable_*` key (the browser-safe key formerly called the anon key)
+
+When deploying to Vercel, add both to Project Settings → Environment Variables.
