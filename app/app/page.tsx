@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
-import { LogOut } from "lucide-react";
+import Link from "next/link";
+import { LogOut, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Logo } from "@/components/Logo";
 import { SignOutButton } from "@/components/SignOutButton";
@@ -24,11 +25,18 @@ export default async function AppPage() {
       <header className="border-b border-border">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
           <Logo />
-          <SignOutButton>
-            <Button variant="secondary">
-              <LogOut className="mr-1 h-4 w-4" /> Sign out
+          <div className="flex items-center gap-2">
+            <Button asChild>
+              <Link href="/upload">
+                <Upload className="mr-1 h-4 w-4" /> New transcription
+              </Link>
             </Button>
-          </SignOutButton>
+            <SignOutButton>
+              <Button variant="secondary">
+                <LogOut className="mr-1 h-4 w-4" /> Sign out
+              </Button>
+            </SignOutButton>
+          </div>
         </div>
       </header>
       <main className="mx-auto max-w-3xl px-4 py-20 sm:px-6">
