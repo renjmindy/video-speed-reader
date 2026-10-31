@@ -30,3 +30,6 @@ dist
 0_*.png
 
 supabase/.temp
+
+worker/venv
+worker/__pycache__

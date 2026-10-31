@@ -1,0 +1,26 @@
+[Unit]
+Description=M1 Whisper distributor (polls Supabase, spawns worker.py)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/app/worker
+ExecStart=/home/ubuntu/app/worker/venv/bin/python /home/ubuntu/app/worker/distributor.py
+Restart=always
+RestartSec=5
+StandardOutput=append:/var/log/m1-distributor.log
+StandardError=append:/var/log/m1-distributor.log
+# CRITICAL: systemd's default PATH is /usr/bin:/bin — that does NOT include
+# the venv's bin/, so `subprocess.run(["yt-dlp", ...])` from worker.py crashes
+# with FileNotFoundError: 'yt-dlp'. Prepend the venv bin dir explicitly.
+Environment=PATH=/home/ubuntu/app/worker/venv/bin:/usr/local/bin:/usr/bin:/bin
+# AWS region for boto3 (SSM client) — must match where the EC2 was launched.
+# This project's m1-worker EC2 is in ap-southeast-2 (Sydney). If you relaunch
+# the EC2 somewhere else, patch this line + commit + redeploy (6a + 6b),
+# otherwise boto3 crashes with NoRegionError on first poll.
+Environment=AWS_DEFAULT_REGION=ap-southeast-2
+
+[Install]
+WantedBy=multi-user.target
