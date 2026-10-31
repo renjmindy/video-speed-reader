@@ -28,3 +28,5 @@ dist
 
 # Reference images (local only)
 0_*.png
+
+supabase/.temp
