@@ -147,8 +147,10 @@ export default async function UploadPage() {
             New transcription
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Paste a direct media URL. YouTube URLs are not supported in M1 —
-            cloud IPs are rate-limited by YouTube.
+            Paste a direct link to an audio or video file — mp3, mp4, m4a, or
+            any URL that returns a media file directly (Internet Archive,
+            Wikimedia Commons, CloudFront, a signed S3 link, Vimeo direct
+            downloads, etc.).
           </p>
           <div className="mt-4 rounded-2xl border border-border bg-card p-6">
             <JobSubmitForm />
