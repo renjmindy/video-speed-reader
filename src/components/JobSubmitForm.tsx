@@ -25,7 +25,7 @@ import { createClient } from "@/lib/supabase/client";
 type Language = "zh" | "en" | "ja";
 type Mode = "upload" | "url";
 
-const MAX_UPLOAD_BYTES = 100 * 1024 * 1024; // 100 MiB — matches the bucket's file_size_limit
+const MAX_UPLOAD_BYTES = 50 * 1024 * 1024; // 50 MiB — matches the bucket's file_size_limit (Supabase free-tier cap)
 
 function randomSuffix(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
