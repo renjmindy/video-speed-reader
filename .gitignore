@@ -21,3 +21,10 @@ dist
 *.njsproj
 *.sln
 *.sw?
+.vercel
+
+# Next.js
+.next
+
+# Reference images (local only)
+0_*.png
