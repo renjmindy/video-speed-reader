@@ -1,17 +1,35 @@
 import { QueryClient } from "@tanstack/react-query";
-import { createRouter, rootRouteId } from "@tanstack/react-router";
+import { render, screen } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 
-import { routeTree } from "@/routeTree.gen";
+import App from "@/App";
 
-// Match routes without running loaders or rendering: loaders may need a server or
-// network the test run lacks, and jsdom never loads the stylesheets React waits on.
+function renderAt(path: string) {
+  return render(
+    <MemoryRouter initialEntries={[path]}>
+      <App queryClient={new QueryClient()} />
+    </MemoryRouter>,
+  );
+}
+
 describe("App routing", () => {
   it("matches a page for / instead of falling back to not found", () => {
-    const router = createRouter({ routeTree, context: { queryClient: new QueryClient() } });
+    renderAt("/");
+    expect(screen.queryByText("Page not found")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Video Speed Reader" })).toBeInTheDocument();
+  });
 
-    const matches = router.matchRoutes("/");
+  it.each([
+    ["/signin", "Sign in / 登入"],
+    ["/signup", "Create account / 註冊"],
+  ])("renders %s", (path, heading) => {
+    renderAt(path);
+    expect(screen.getByRole("heading", { name: heading })).toBeInTheDocument();
+  });
 
-    expect(matches.at(-1)?.routeId).not.toBe(rootRouteId);
+  it("falls back to not found for unknown routes", () => {
+    renderAt("/nope");
+    expect(screen.getByText("Page not found")).toBeInTheDocument();
   });
 });

@@ -1,22 +1,9 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { Link } from "react-router-dom";
 import { Clock, FileCheck2, ScrollText, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Logo } from "@/components/Logo";
 import { Reveal } from "@/components/Reveal";
-
-export const Route = createFileRoute("/")({
-  head: () => ({
-    meta: [
-      { title: "Video Speed Reader — Transcripts in three minutes" },
-      { name: "description", content: "上傳影片，三分鐘內拿到逐字稿。Upload your video, get a clean transcript in three minutes." },
-      { property: "og:title", content: "Video Speed Reader — Transcripts in three minutes" },
-      { property: "og:description", content: "Upload your video, get a clean transcript in three minutes." },
-      { property: "og:type", content: "website" },
-      { name: "twitter:card", content: "summary_large_image" },
-    ],
-  }),
-  component: Index,
-});
+import { usePageMeta } from "@/hooks/use-page-meta";
 
 const features = [
   {
@@ -39,7 +26,12 @@ const features = [
   },
 ];
 
-function Index() {
+export default function IndexPage() {
+  usePageMeta({
+    title: "Video Speed Reader — Transcripts in three minutes",
+    description:
+      "上傳影片，三分鐘內拿到逐字稿。Upload your video, get a clean transcript in three minutes.",
+  });
   return (
     <div className="flex min-h-screen flex-col bg-background">
       <header className="sticky top-0 z-20 border-b border-border bg-background/80 backdrop-blur">
@@ -58,11 +50,17 @@ function Index() {
               <p className="mb-6 inline-block rounded-full border border-border bg-card px-3 py-1 text-xs font-medium text-muted-foreground">
                 For creators, educators & engineers
               </p>
-              <h1 className="text-gradient text-5xl font-extrabold tracking-tight sm:text-7xl">Video Speed Reader</h1>
+              <h1 className="text-gradient text-5xl font-extrabold tracking-tight sm:text-7xl">
+                Video Speed Reader
+              </h1>
             </Reveal>
             <Reveal delay={120}>
-              <p className="mt-6 text-2xl font-semibold text-foreground sm:text-3xl">上傳影片，三分鐘內拿到逐字稿。</p>
-              <p className="mt-3 text-lg text-muted-foreground">Upload your video, get a clean transcript in three minutes.</p>
+              <p className="mt-6 text-2xl font-semibold text-foreground sm:text-3xl">
+                上傳影片，三分鐘內拿到逐字稿。
+              </p>
+              <p className="mt-3 text-lg text-muted-foreground">
+                Upload your video, get a clean transcript in three minutes.
+              </p>
             </Reveal>
             <Reveal delay={240} className="mt-10 flex justify-center gap-3">
               <Button asChild size="lg">
