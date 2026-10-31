@@ -10,6 +10,7 @@ on exactly those three secret names, so no credentials ever live on disk.
 import math
 import os
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -54,13 +55,44 @@ def update_session(session_id: str, **fields) -> None:
     db.table("job_sessions").update(fields).eq("id", session_id).execute()
 
 
+def _parse_supabase_uri(uri: str) -> tuple[str, str]:
+    """supabase://bucket/key -> (bucket, key)."""
+    rest = uri[len("supabase://"):]
+    bucket, _, key = rest.partition("/")
+    if not bucket or not key:
+        raise ValueError(f"Malformed supabase URI: {uri}")
+    return bucket, key
+
+
 def download_video(url: str, dest_dir: Path) -> Path:
-    """yt-dlp for URLs; pass through for local file paths."""
+    """Fetch the source media. Three schemes: supabase:// (user upload via
+    the /upload page), http(s):// (yt-dlp), or a bare local path (dev only)."""
+    if url.startswith("supabase://"):
+        bucket, key = _parse_supabase_uri(url)
+        suffix = Path(key).suffix or ".bin"
+        out = dest_dir / f"video{suffix}"
+        data = db.storage.from_(bucket).download(key)
+        out.write_bytes(data)
+        return out
     if url.startswith(("http://", "https://")):
         out_template = str(dest_dir / "video.%(ext)s")
         subprocess.run(["yt-dlp", "-o", out_template, url], check=True)
         return next(dest_dir.glob("video.*"))
     return Path(url).expanduser().resolve()
+
+
+def cleanup_source(url: str) -> None:
+    """Delete the uploaded object from Supabase Storage after a successful
+    transcription. Local temp files on EC2 are already cleaned up by the
+    TemporaryDirectory context manager that wraps the pipeline."""
+    if not url.startswith("supabase://"):
+        return
+    try:
+        bucket, key = _parse_supabase_uri(url)
+        db.storage.from_(bucket).remove([key])
+    except Exception as e:
+        # Non-fatal: the transcript is already written, we just leaked a blob.
+        print(f"cleanup_source failed for {url}: {e}", file=sys.stderr, flush=True)
 
 
 def to_mp3(video_path: Path, dest_dir: Path) -> Path:
@@ -148,6 +180,7 @@ def main() -> None:
         update_session(session_id, subtitle_txt_content=full_text)
         update_job(job_id, status="done")
 
+    cleanup_source(job["video_source_url"])
     print(f"[{job_id}] done — {len(full_text)} chars")
 
 
