@@ -57,7 +57,7 @@ By the time the student starts M1, `m0-landing-page-checklist` Section F has alr
 | Push to GitHub | `git push origin main` (uses the GitHub Personal Access Token configured during M0 setup) |
 | Apply the Supabase migration (Step 2) | `mcp__supabase_remote__apply_migration` (Cowork) **or** `supabase db push` (local CLI). Either way, also commit the .sql under `supabase/migrations/` |
 | Inspect tables / row state | `mcp__supabase_remote__list_tables` / `execute_sql`, or `supabase db execute`, or the Supabase dashboard |
-| Run commands on the EC2 (Step 6) | `call_aws ssm send-command` via AWS API MCP — **no SSH**. Local-CLI alternative: same call via `aws ssm send-command` |
+| Run commands on the EC2 (Step 6) | `aws ssm send-command` via AWS MCP — **no SSH**. Local-CLI alternative: same call via `aws ssm send-command` |
 | Verify Vercel deploy | `mcp__vercel__*`, or browser to `<vercel-url>` |
 
 **There is no SSH path** — M1 prereq stood up an SSM-managed EC2 specifically so we don't need one.
@@ -105,12 +105,12 @@ The full update loop, from "I edited `worker.py`" to "the new code is running on
 2. **Push** to GitHub: `git push origin main`.
 3. **Pull on the EC2** via Cowork — *one* MCP call (note: JSON form, not shorthand — see Step 6 gotchas):
    ```
-   call_aws ssm send-command --instance-ids "$INSTANCE_ID" --document-name AWS-RunShellScript \
+   aws ssm send-command --instance-ids "$INSTANCE_ID" --document-name AWS-RunShellScript \
      --parameters '{"commands":["sudo -u ubuntu bash -c \"cd /home/ubuntu/app && git pull\"","sudo -u ubuntu bash -c \"cd /home/ubuntu/app/worker && ./venv/bin/pip install -r requirements.txt\""]}'
    ```
 4. **Restart the systemd service** — *one more* MCP call:
    ```
-   call_aws ssm send-command --instance-ids "$INSTANCE_ID" --document-name AWS-RunShellScript \
+   aws ssm send-command --instance-ids "$INSTANCE_ID" --document-name AWS-RunShellScript \
      --parameters '{"commands":["sudo systemctl restart m1-distributor.service"]}'
    ```
 
@@ -146,8 +146,8 @@ The skill is conversational — drive the student through 7 steps. Don't dump al
 >
 > 1. `mcp__supabase_remote__list_tables` returns the M0 auth schema.
 > 2. `mcp__vercel__*` tools are loaded (Cowork) or `vercel whoami` succeeds (CLI).
-> 3. AWS API MCP works: `call_aws ssm describe-instance-information --filters "Key=tag:Name,Values=m1-worker"` returns one row with `PingStatus=Online`.
-> 4. AWS Secrets Manager has all four M1 secrets: `call_aws secretsmanager list-secrets --query 'SecretList[?Name==\`openai-api-key\` || Name==\`supabase-url\` || Name==\`supabase-secret-key\` || Name==\`supabase-publishable-key\`].Name'` returns the four names. (The worker.py / distributor.py code in Step 5 only reads three of them — the publishable key is stored for future-milestone use, see M1 prereq §2.3.)
+> 3. AWS MCP works: `aws ssm describe-instance-information --filters "Key=tag:Name,Values=m1-worker"` returns one row with `PingStatus=Online`.
+> 4. AWS Secrets Manager has all four M1 secrets: `aws secretsmanager list-secrets --query 'SecretList[?Name==\`openai-api-key\` || Name==\`supabase-url\` || Name==\`supabase-secret-key\` || Name==\`supabase-publishable-key\`].Name'` returns the four names. (The worker.py / distributor.py code in Step 5 only reads three of them — the publishable key is stored for future-milestone use, see M1 prereq §2.3.)
 >
 > If any check fails, switch to `m1-ai-video-transcript-prerequisites` and resolve before continuing. **No SSH is used in M1.**
 
@@ -863,7 +863,7 @@ WantedBy=multi-user.target
 > **Two things to verify in this unit file before deploying:**
 >
 > 1. **`Environment=PATH=...`** — without the venv's `bin/` on PATH, `yt-dlp` (installed via `pip` into the venv) is invisible to `subprocess.run`, and the worker dies the moment a job is dispatched. This is the single most common silent failure in M1; the symptom (`FileNotFoundError: 'yt-dlp'`) only appears in `/var/log/m1-distributor.log`, NOT in `journalctl`.
-> 2. **`Environment=AWS_DEFAULT_REGION=...`** — must match the region the EC2 was launched in (M1 prereq §2.1). The unit file is templated to `us-west-2`; if the student launched in `us-east-1` (the AWS API MCP default), the worker crashes with `NoRegionError`. Resolve the actual region from `describe-instances` (command in the comment above) before pushing.
+> 2. **`Environment=AWS_DEFAULT_REGION=...`** — must match the region the EC2 was launched in (M1 prereq §2.1). The unit file is templated to `us-west-2`; if the student launched in `us-east-1` (the AWS MCP default), the worker crashes with `NoRegionError`. Resolve the actual region from `describe-instances` (command in the comment above) before pushing.
 
 **Verify before moving on:**
 
@@ -871,10 +871,10 @@ Claude Code writes all four files (`requirements.txt`, `worker.py`, `distributor
 
 ### Step 6 — Deploy + run the worker on EC2 (via SSM, no SSH)
 
-We do every EC2-side action through `call_aws ssm send-command`. Get the instance ID once and reuse it:
+We do every EC2-side action through `aws ssm send-command`. Get the instance ID once and reuse it:
 
 ```
-INSTANCE_ID=$(call_aws ec2 describe-instances --filters "Name=tag:Name,Values=m1-worker" "Name=instance-state-name,Values=running" --query 'Reservations[0].Instances[0].InstanceId' --output text)
+INSTANCE_ID=$(aws ec2 describe-instances --filters "Name=tag:Name,Values=m1-worker" "Name=instance-state-name,Values=running" --query 'Reservations[0].Instances[0].InstanceId' --output text)
 ```
 
 > **Three gotchas to internalize before running any `send-command`:**
@@ -884,7 +884,7 @@ INSTANCE_ID=$(call_aws ec2 describe-instances --filters "Name=tag:Name,Values=m1
 > 3. **Patch the unit file's `AWS_DEFAULT_REGION` to match this EC2's actual region BEFORE pushing.** The committed `m1-distributor.service` is templated to `us-west-2`. Resolve the real region in one call, then if it differs, `Edit` the unit file in the repo + `git push` before running 6a:
 >
 >    ```
->    call_aws ec2 describe-instances --instance-ids "$INSTANCE_ID" \
+>    aws ec2 describe-instances --instance-ids "$INSTANCE_ID" \
 >      --query 'Reservations[0].Instances[0].Placement.AvailabilityZone' \
 >      --output text
 >    ```
@@ -894,7 +894,7 @@ INSTANCE_ID=$(call_aws ec2 describe-instances --filters "Name=tag:Name,Values=m1
 #### 6a — Pull the new worker code and install deps
 
 ```
-call_aws ssm send-command \
+aws ssm send-command \
   --instance-ids "$INSTANCE_ID" \
   --document-name "AWS-RunShellScript" \
   --comment "M1: pull worker code + install Python deps" \
@@ -904,7 +904,7 @@ call_aws ssm send-command \
 `pip install` on a `t3.small` can take **60–90 s** (not 30) for the first install of `openai` + `supabase` + `yt-dlp`. After issuing the command, wait ~90 s, then read the captured log file in a separate call:
 
 ```
-call_aws ssm send-command --instance-ids "$INSTANCE_ID" --document-name "AWS-RunShellScript" \
+aws ssm send-command --instance-ids "$INSTANCE_ID" --document-name "AWS-RunShellScript" \
   --parameters '{"commands":["tail -30 /tmp/pip.log","tail -10 /tmp/git-pull.log"]}'
 ```
 
@@ -913,7 +913,7 @@ You should see `Successfully installed openai-... supabase-... boto3-... yt-dlp-
 #### 6b — Install the systemd unit and start the service
 
 ```
-call_aws ssm send-command \
+aws ssm send-command \
   --instance-ids "$INSTANCE_ID" \
   --document-name "AWS-RunShellScript" \
   --comment "M1: install m1-distributor.service and start it" \
@@ -923,14 +923,14 @@ call_aws ssm send-command \
 Then read the status separately (`status` output is multi-line and can truncate):
 
 ```
-call_aws ssm send-command --instance-ids "$INSTANCE_ID" --document-name "AWS-RunShellScript" \
+aws ssm send-command --instance-ids "$INSTANCE_ID" --document-name "AWS-RunShellScript" \
   --parameters '{"commands":["cat /tmp/svc-status.log"]}'
 ```
 
 The status output should show `Active: active (running)`. If it shows `failed`, look at the **worker log file** (not journalctl — see note below):
 
 ```
-call_aws ssm send-command \
+aws ssm send-command \
   --instance-ids "$INSTANCE_ID" \
   --document-name "AWS-RunShellScript" \
   --parameters '{"commands":["tail -100 /var/log/m1-distributor.log"]}'
@@ -938,9 +938,9 @@ call_aws ssm send-command \
 
 Most-common failures and fixes:
 - **`FileNotFoundError: 'yt-dlp'` in `/var/log/m1-distributor.log` (NOT in journalctl)** → systemd inherits `PATH=/usr/bin:/bin`, which doesn't include the venv's `bin/`. Fix: confirm `Environment=PATH=/home/ubuntu/app/worker/venv/bin:/usr/local/bin:/usr/bin:/bin` is in `m1-distributor.service`. Push, repeat 6a + 6b. (This is the #1 silent failure for first-time M1 students.)
-- `NoRegionError` → `AWS_DEFAULT_REGION` in `m1-distributor.service` doesn't match the EC2's actual region. Resolve from `call_aws ec2 describe-instances --instance-ids "$INSTANCE_ID" --query 'Reservations[0].Instances[0].Placement.AvailabilityZone' --output text` (strip the trailing letter), fix the unit file, push, repeat 6a + 6b.
+- `NoRegionError` → `AWS_DEFAULT_REGION` in `m1-distributor.service` doesn't match the EC2's actual region. Resolve from `aws ec2 describe-instances --instance-ids "$INSTANCE_ID" --query 'Reservations[0].Instances[0].Placement.AvailabilityZone' --output text` (strip the trailing letter), fix the unit file, push, repeat 6a + 6b.
 - `AccessDeniedException` on `secretsmanager:GetSecretValue` → IAM role missing the `m1-secrets-read` inline policy from M1 prereq §2.3. Re-run that `put-role-policy` call.
-- `ResourceNotFoundException: Secrets Manager can't find the specified secret` → one of the three secret names (`openai-api-key`, `supabase-url`, `supabase-secret-key`) wasn't created. Re-check via `call_aws secretsmanager list-secrets --query 'SecretList[].Name'`. Re-create the missing one via `call_aws secretsmanager create-secret --name <name> --secret-string '<value>'`.
+- `ResourceNotFoundException: Secrets Manager can't find the specified secret` → one of the three secret names (`openai-api-key`, `supabase-url`, `supabase-secret-key`) wasn't created. Re-check via `aws secretsmanager list-secrets --query 'SecretList[].Name'`. Re-create the missing one via `aws secretsmanager create-secret --name <name> --secret-string '<value>'`.
 
 > **Where to look for what:** `journalctl -u m1-distributor.service` only shows systemd lifecycle events (Started / Stopped / Deactivated) — because the unit redirects stdout/stderr to `/var/log/m1-distributor.log`. **Real worker activity, tracebacks, and `[<uuid>] downloading...` lines live in that file, not in journalctl.** When debugging, `tail -100 /var/log/m1-distributor.log` is the right command, not `journalctl`.
 
@@ -953,7 +953,7 @@ Most-common failures and fixes:
    - YouTube will only work if the student adds `--cookies-from-browser` handling to `worker.py` — out of scope for M1.
 2. Within 10 seconds, the distributor's log gets a `spawned worker for job <uuid>` line. Read it:
    ```
-   call_aws ssm send-command --instance-ids "$INSTANCE_ID" --document-name "AWS-RunShellScript" --parameters '{"commands":["tail -20 /var/log/m1-distributor.log"]}'
+   aws ssm send-command --instance-ids "$INSTANCE_ID" --document-name "AWS-RunShellScript" --parameters '{"commands":["tail -20 /var/log/m1-distributor.log"]}'
    ```
 3. The spawned worker logs `[<uuid>] downloading ...`, then `[<uuid>] transcribing N chunk(s)`, then `[<uuid>] done — XXXX chars` — also in `/var/log/m1-distributor.log` because we stream Popen stdout to systemd which streams it to the same log file.
 4. Refresh `/upload` — the job's status badge walks `pending → downloading → transcribe → done`, and the **Transcript column** flips from "—" to a clickable `.txt` download link.
@@ -962,7 +962,7 @@ Most-common failures and fixes:
    - **CLI mode:** same query.
 6. **Click the Transcript-column download link.** A file named `transcript-<short>.txt` should download with the actual transcript text inside. Open it; first ~200 chars should be readable transcript, not JSON or HTML. If the click does nothing or downloads an error JSON, the Transcript column was rendered but `GET /api/jobs/[id]/transcript` (Step 4b) is broken — re-check that file landed in the repo and Vercel re-deployed.
 
-If a worker errors (most common: bad SSM secret value, missing `Environment=PATH=` in the unit file, EC2 missing ffmpeg, video URL is a YouTube link), `/var/log/m1-distributor.log` shows the traceback — read it via `call_aws ssm send-command ... --parameters '{"commands":["tail -100 /var/log/m1-distributor.log"]}'`. The job stays stuck in whatever status it failed at; reset it manually via Supabase MCP:
+If a worker errors (most common: bad SSM secret value, missing `Environment=PATH=` in the unit file, EC2 missing ffmpeg, video URL is a YouTube link), `/var/log/m1-distributor.log` shows the traceback — read it via `aws ssm send-command ... --parameters '{"commands":["tail -100 /var/log/m1-distributor.log"]}'`. The job stays stuck in whatever status it failed at; reset it manually via Supabase MCP:
 
 ```
 mcp__supabase_remote__execute_sql:
@@ -984,7 +984,7 @@ Once the smoke test passes, load `m1-ai-video-transcript-checklist` and walk thr
    The Supabase Secret key (`sb_secret_*`) bypasses RLS. Anyone with it owns the database. It must only appear server-side. Keep it as `SUPABASE_SECRET_KEY`, never `NEXT_PUBLIC_SUPABASE_SECRET_KEY`. (The Publishable key — `sb_publishable_*` — is the one that's safe in `NEXT_PUBLIC_*` env vars.)
 
 3. **Hardcoding secrets anywhere outside AWS Secrets Manager.**
-   The whole point of M1 prereq §2.3 was to keep `OPENAI_API_KEY` / `SUPABASE_SECRET_KEY` out of git, out of `user-data`, out of the EC2 filesystem. If you find yourself about to write a `.env` file on the EC2, or paste a key into a `cloud-init` script, or commit secrets to GitHub: stop. Add the value to Secrets Manager via `call_aws secretsmanager create-secret` (or `put-secret-value` to update) and read it via `boto3.client("secretsmanager").get_secret_value(SecretId=<name>)["SecretString"]`.
+   The whole point of M1 prereq §2.3 was to keep `OPENAI_API_KEY` / `SUPABASE_SECRET_KEY` out of git, out of `user-data`, out of the EC2 filesystem. If you find yourself about to write a `.env` file on the EC2, or paste a key into a `cloud-init` script, or commit secrets to GitHub: stop. Add the value to Secrets Manager via `aws secretsmanager create-secret` (or `put-secret-value` to update) and read it via `boto3.client("secretsmanager").get_secret_value(SecretId=<name>)["SecretString"]`.
 
 4. **Generating SRT/VTT in M1.**
    Production does, M1 deliberately doesn't. If Claude Code proposes adding SRT timestamps to the schema or worker, block it — that complexity is not in scope for this milestone.
@@ -999,7 +999,7 @@ Once the smoke test passes, load `m1-ai-video-transcript-checklist` and walk thr
    Vercel snapshots env vars at build time. Adding a new env var in Settings doesn't apply to already-deployed builds — manually redeploy (Deployments tab → ⋯ → Redeploy) or push a trivial commit.
 
 8. **Distributor double-spawning a job.**
-   Documented limitation: if `worker.py` crashes between Popen and the first `update_job(status='downloading')`, the next poll re-spawns. Acceptable in M1. If you see double-transcription on the same job, it's almost always this race or a dead worker process. Fix via SSM: `call_aws ssm send-command ... 'sudo systemctl restart m1-distributor.service && sudo pkill -f worker.py'`, then reset the job's status via Supabase MCP.
+   Documented limitation: if `worker.py` crashes between Popen and the first `update_job(status='downloading')`, the next poll re-spawns. Acceptable in M1. If you see double-transcription on the same job, it's almost always this race or a dead worker process. Fix via SSM: `aws ssm send-command ... 'sudo systemctl restart m1-distributor.service && sudo pkill -f worker.py'`, then reset the job's status via Supabase MCP.
 
 9. **EC2 stopped → web app shows "stuck" jobs.**
    When the student stops the EC2 to save money, no worker is polling, so new jobs sit at `pending` forever. Make sure the student knows: start the EC2 first, then submit jobs.
