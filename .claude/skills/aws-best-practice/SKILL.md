@@ -17,11 +17,11 @@ Course 2 supports two execution environments. The hard rules below apply identic
 
 | Operation | CLI mode | Cowork mode |
 |---|---|---|
-| Run any AWS API call | `aws <service> <verb> ...` | `aws <service> <verb> ...` via AWS MCP |
-| Suggest a command for a fuzzy goal | `aws <service> help` + man pages | `aws___search_documentation` / `aws___read_documentation` via AWS MCP (the old `suggest_aws_commands` tool has no 1:1 replacement) |
-| Run a shell command on an EC2 | `aws ssm send-command ...` | `aws ssm send-command ...` |
-| Open an interactive EC2 shell | `aws ssm start-session --target <id>` | `aws ssm start-session --target <id>` (rarely needed — prefer `send-command`) |
-| Auth into AWS | `aws configure` (Access Key ID + Secret + region) | Paste Access Key ID + Secret + region into the AWS MCP connector settings |
+| Run any AWS API call | `aws <service> <verb> ...` | `call_aws <service> <verb> ...` via AWS API MCP |
+| Suggest a command for a fuzzy goal | `aws <service> help` + man pages | `suggest_aws_commands "<natural language>"` via AWS API MCP |
+| Run a shell command on an EC2 | `aws ssm send-command ...` | `call_aws ssm send-command ...` |
+| Open an interactive EC2 shell | `aws ssm start-session --target <id>` | `call_aws ssm start-session --target <id>` (rarely needed — prefer `send-command`) |
+| Auth into AWS | `aws configure` (Access Key ID + Secret + region) | Paste Access Key ID + Secret + region into the AWS API MCP connector settings |
 
 **Cowork rule:** there is **no laptop filesystem** in Cowork. That means: no `.pem` file, no `~/.ssh/config`, no `scp`. SSH is therefore not a viable EC2 access path in this course — see Rule 1.
 
@@ -50,14 +50,14 @@ If a student insists on SSH, the answer is: that's a different course path; this
 
 ### Rule 2 — Always pass `--parameters` to `ssm send-command` as JSON, never as the shorthand `commands=[...]`
 
-> **The rule:** `--parameters '{"commands":["..."]}'` is the only form that works reliably through the Cowork MCP shell layer. The CLI shorthand `--parameters 'commands=["..."]'` parses fine in a terminal but breaks through `aws`.
+> **The rule:** `--parameters '{"commands":["..."]}'` is the only form that works reliably through the Cowork MCP shell layer. The CLI shorthand `--parameters 'commands=["..."]'` parses fine in a terminal but breaks through `call_aws`.
 
-**Why:** The AWS CLI shorthand uses brackets, equals signs, and bare commas — all of which get re-interpreted or mangled when passed through Cowork's quoting layer to the AWS MCP. The symptoms are inconsistent: sometimes you get `MalformedInput`, sometimes the command runs but with a truncated `commands` array, sometimes nothing visible happens at all. JSON form is the unambiguous wire format that survives every layer.
+**Why:** The AWS CLI shorthand uses brackets, equals signs, and bare commas — all of which get re-interpreted or mangled when passed through Cowork's quoting layer to the AWS API MCP. The symptoms are inconsistent: sometimes you get `MalformedInput`, sometimes the command runs but with a truncated `commands` array, sometimes nothing visible happens at all. JSON form is the unambiguous wire format that survives every layer.
 
 **How to apply:** Every `send-command` invocation uses this form:
 
 ```
-aws ssm send-command \
+call_aws ssm send-command \
   --instance-ids "$INSTANCE_ID" \
   --document-name "AWS-RunShellScript" \
   --parameters '{"commands":["echo hello","date"]}'
@@ -77,12 +77,12 @@ If you find yourself writing `'commands=[...]'` to either work in CLI or copy-pa
 
 ```
 # Step 1 — run, redirect everything to a file
-aws ssm send-command --instance-ids "$INSTANCE_ID" --document-name AWS-RunShellScript \
+call_aws ssm send-command --instance-ids "$INSTANCE_ID" --document-name AWS-RunShellScript \
   --parameters '{"commands":["cd /home/ubuntu/app/worker && source venv/bin/activate && pip install -r requirements.txt > /tmp/pip.log 2>&1"]}'
 
 # Step 2 — wait long enough (pip install on t3.small is 60–90 s, not 30)
 # Step 3 — read the file in a separate send-command
-aws ssm send-command --instance-ids "$INSTANCE_ID" --document-name AWS-RunShellScript \
+call_aws ssm send-command --instance-ids "$INSTANCE_ID" --document-name AWS-RunShellScript \
   --parameters '{"commands":["tail -40 /tmp/pip.log"]}'
 ```
 
@@ -104,7 +104,7 @@ Secrets Manager: encrypted at rest with KMS, IAM-scoped (the M1 role can only re
 **How to apply:**
 - Create one secret per credential (`openai-api-key`, `supabase-url`, `supabase-secret-key`, `supabase-publishable-key`):
   ```
-  aws secretsmanager create-secret --name openai-api-key --secret-string '<sk-...>'
+  call_aws secretsmanager create-secret --name openai-api-key --secret-string '<sk-...>'
   ```
 - Scope the EC2's IAM role to **exactly** those secret names — use the `-*` ARN suffix to match Secrets Manager's auto-generated random tail:
   ```
@@ -125,12 +125,12 @@ Secrets Manager: encrypted at rest with KMS, IAM-scoped (the M1 role can only re
 
 > **The rule:** `m1-distributor.service` (and any future systemd unit on an EC2) declares `Environment=AWS_DEFAULT_REGION=<region>`. Before pushing the unit file, resolve the EC2's actual region from `describe-instances` and patch the template if it doesn't match.
 
-**Why:** The committed unit file is templated to one region (in M1: `us-west-2`). If the student launched their EC2 in `us-east-1` (the AWS MCP default if region isn't set), boto3 inside the worker can't find a default region and crashes with `NoRegionError` on the first Secrets Manager call. The worker silently fails on every job, and the only place the traceback surfaces is `/var/log/m1-distributor.log` — which the student isn't yet looking at.
+**Why:** The committed unit file is templated to one region (in M1: `us-west-2`). If the student launched their EC2 in `us-east-1` (the AWS API MCP default if region isn't set), boto3 inside the worker can't find a default region and crashes with `NoRegionError` on the first Secrets Manager call. The worker silently fails on every job, and the only place the traceback surfaces is `/var/log/m1-distributor.log` — which the student isn't yet looking at.
 
 **How to apply:**
 - Resolve the real region in one call before pushing:
   ```
-  aws ec2 describe-instances --instance-ids "$INSTANCE_ID" \
+  call_aws ec2 describe-instances --instance-ids "$INSTANCE_ID" \
     --query 'Reservations[0].Instances[0].Placement.AvailabilityZone' --output text
   # → e.g. us-east-1a — strip the trailing letter to get the region (us-east-1)
   ```
@@ -165,17 +165,17 @@ The same rule applies to any AWS-aware service you deploy onto an EC2 — always
 
 **How to apply:**
 ```
-INSTANCE_ID=$(aws ec2 describe-instances \
+INSTANCE_ID=$(call_aws ec2 describe-instances \
   --filters "Name=tag:Name,Values=m1-worker" "Name=instance-state-name,Values=running" \
   --query 'Reservations[0].Instances[0].InstanceId' --output text)
 ```
-Then reuse `"$INSTANCE_ID"` in every subsequent `send-command`. If `INSTANCE_ID` comes back empty, the EC2 is stopped or the tag is wrong — `aws ec2 start-instances` or fix the tag, don't paste an ID.
+Then reuse `"$INSTANCE_ID"` in every subsequent `send-command`. If `INSTANCE_ID` comes back empty, the EC2 is stopped or the tag is wrong — `call_aws ec2 start-instances` or fix the tag, don't paste an ID.
 
 ---
 
-### Rule 8 — Use a dedicated IAM user for AWS MCP — never root account keys
+### Rule 8 — Use a dedicated IAM user for AWS API MCP — never root account keys
 
-> **The rule:** Create a named IAM user (in M1: `cowork-m1`) with `AdministratorAccess`, generate one access key for it, paste that into Cowork's AWS MCP. Never use AWS root account keys.
+> **The rule:** Create a named IAM user (in M1: `cowork-m1`) with `AdministratorAccess`, generate one access key for it, paste that into Cowork's AWS API MCP. Never use AWS root account keys.
 
 **Why:** Root keys have no scoping, no per-key audit trail, and no easy rotation. If a root key leaks, the only safe response is "rotate the root password, regenerate all keys, hope nothing was destroyed in between." A named IAM user is the AWS-recommended floor — auditable, deletable, and you can have multiple per-purpose users.
 
@@ -183,7 +183,7 @@ Then reuse `"$INSTANCE_ID"` in every subsequent `send-command`. If `INSTANCE_ID`
 - IAM → Users → Create user → name `cowork-m1`, no console access.
 - Attach `AdministratorAccess` directly (for a learning course this is the right trade — the alternative is enumerating ~15 IAM/EC2/SSM/KMS actions, which is a separate "production hardening" exercise).
 - Security credentials → Create access key → use case "Application running outside AWS" → copy both halves once (AWS only shows the secret once).
-- Paste into the AWS MCP connector settings.
+- Paste into the AWS API MCP connector settings.
 - **End-of-course:** delete the access key. The MCP stops working; that's the desired terminal state.
 - **If you ever leak the key by pasting it into chat / a commit / a screenshot:** delete it immediately and create a new one. Anyone who sees the `AKIA...` + matching secret has full AWS access until you revoke.
 
@@ -191,15 +191,15 @@ Then reuse `"$INSTANCE_ID"` in every subsequent `send-command`. If `INSTANCE_ID`
 
 ### Rule 9 — Stop the EC2 when not actively running a lesson — and tell the student about it before they walk away
 
-> **The rule:** At the end of every M1+ session, the worker EC2 gets stopped (not terminated) via `aws ec2 stop-instances --instance-ids "$INSTANCE_ID"`. The student should know this command on day one.
+> **The rule:** At the end of every M1+ session, the worker EC2 gets stopped (not terminated) via `call_aws ec2 stop-instances --instance-ids "$INSTANCE_ID"`. The student should know this command on day one.
 
 **Why:** A `t3.small` running 24/7 is ~$15/month — small in absolute terms, but it's *fully wasted* cost when no jobs are running, and it scales with every student multiplied by every milestone. Storage on the EBS volume persists across stop/start, so there's no setup cost to resuming the next day. Terminate is destructive (you'd have to re-run M1 prereq §2.5 onward); stop is reversible.
 
 **How to apply:**
 - **E1 in the M1 checklist** specifically tests: "How do you stop the EC2?" Acceptable answer: the `stop-instances` MCP call.
 - **E2 (recommended, not required):** OpenAI billing limits should be set so a runaway worker can't drain the credit balance.
-- When the student says "let me sign off for the day" → remind them: `aws ec2 stop-instances --instance-ids "$INSTANCE_ID"`, watch the state flip to `stopping → stopped`, done.
-- **Stopped EC2 ≠ broken EC2.** When the student says "my jobs are stuck at pending," check whether the EC2 is running first — `aws ec2 describe-instances ... --query '...State.Name'`. If it's `stopped`, start it before debugging anything else.
+- When the student says "let me sign off for the day" → remind them: `call_aws ec2 stop-instances --instance-ids "$INSTANCE_ID"`, watch the state flip to `stopping → stopped`, done.
+- **Stopped EC2 ≠ broken EC2.** When the student says "my jobs are stuck at pending," check whether the EC2 is running first — `call_aws ec2 describe-instances ... --query '...State.Name'`. If it's `stopped`, start it before debugging anything else.
 
 ---
 
@@ -216,7 +216,7 @@ Two log surfaces — they show **different** things:
 
 Read the log via SSM:
 ```
-aws ssm send-command --instance-ids "$INSTANCE_ID" --document-name AWS-RunShellScript \
+call_aws ssm send-command --instance-ids "$INSTANCE_ID" --document-name AWS-RunShellScript \
   --parameters '{"commands":["tail -100 /var/log/m1-distributor.log"]}'
 ```
 
@@ -228,17 +228,17 @@ aws ssm send-command --instance-ids "$INSTANCE_ID" --document-name AWS-RunShellS
 
 These are not hard rules — they're failure modes that don't have a single "always do this" answer but show up often enough that you should recognize them.
 
-1. **Region drift between the MCP and the EC2.** AWS MCP defaults to `us-east-1` if region isn't set; if you launched the EC2 in `us-west-2` and didn't set region in MCP, half your `aws` calls will hit the empty `us-east-1` and return "instance not found" — when it does exist, just in another region. Fix: set the MCP's region to match the EC2's, OR pass `--region <region>` on every call.
+1. **Region drift between the MCP and the EC2.** AWS API MCP defaults to `us-east-1` if region isn't set; if you launched the EC2 in `us-west-2` and didn't set region in MCP, half your `call_aws` calls will hit the empty `us-east-1` and return "instance not found" — when it does exist, just in another region. Fix: set the MCP's region to match the EC2's, OR pass `--region <region>` on every call.
 
 2. **`InvalidInstanceId` when `send-command` runs but the instance "exists."** Usually means the SSM agent on the instance can't reach the SSM endpoint (IAM role missing `AmazonSSMManagedInstanceCore`, or the security group is somehow blocking outbound 443). Verify with `ssm describe-instance-information` — if `PingStatus` is not `Online`, the agent isn't reachable.
 
 3. **`AccessDeniedException` on `secretsmanager:GetSecretValue`.** The EC2's IAM role doesn't have the inline policy granting read on the four secret names. Re-run the `put-role-policy` from M1 prereq §2.3.
 
-4. **`ResourceNotFoundException: Secrets Manager can't find the specified secret`.** One of the secret names wasn't created. Don't assume which one — list them: `aws secretsmanager list-secrets --query 'SecretList[].Name'`. Re-create the missing one.
+4. **`ResourceNotFoundException: Secrets Manager can't find the specified secret`.** One of the secret names wasn't created. Don't assume which one — list them: `call_aws secretsmanager list-secrets --query 'SecretList[].Name'`. Re-create the missing one.
 
 5. **AMI ID is region-specific.** Don't hardcode `ami-xxxxxxx`. Resolve the latest Ubuntu 22.04 AMI per region from SSM Parameter Store:
    ```
-   aws ssm get-parameters \
+   call_aws ssm get-parameters \
      --names /aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp2/ami-id \
      --query 'Parameters[0].Value' --output text
    ```

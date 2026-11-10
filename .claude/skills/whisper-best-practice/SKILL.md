@@ -19,8 +19,8 @@ Whisper is a stateless API; the calling code runs identically in both modes. The
 
 | Operation | CLI mode | Cowork mode |
 |---|---|---|
-| Set / rotate `OPENAI_API_KEY` | `aws secretsmanager put-secret-value --secret-id openai-api-key --secret-string '<sk-...>'` | `aws secretsmanager put-secret-value --secret-id openai-api-key --secret-string '<sk-...>'` |
-| Read recent Whisper errors from the worker | `aws ssm send-command ... 'grep -i "whisper\|openai" /var/log/m1-distributor.log'` | Same, via `aws` |
+| Set / rotate `OPENAI_API_KEY` | `aws secretsmanager put-secret-value --secret-id openai-api-key --secret-string '<sk-...>'` | `call_aws secretsmanager put-secret-value --secret-id openai-api-key --secret-string '<sk-...>'` |
+| Read recent Whisper errors from the worker | `aws ssm send-command ... 'grep -i "whisper\|openai" /var/log/m1-distributor.log'` | Same, via `call_aws` |
 | Check OpenAI usage / quotas | Browser → https://platform.openai.com/usage | Same browser |
 
 **The API key never sits in `.env`.** It lives in AWS Secrets Manager (see [[aws-best-practice]] Rule 4). The worker pulls it at startup via `boto3` and instantiates one `OpenAI(api_key=...)` client.
