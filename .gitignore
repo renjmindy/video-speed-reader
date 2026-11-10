@@ -33,3 +33,16 @@ supabase/.temp
 
 worker/venv
 worker/__pycache__
+
+# Local reference materials (not part of the app)
+docs/
+*.mp3
+*.mp4
+*.m4a
+*.wav
+*.mov
+*.webm
+*.flac
+*.ogg
+data_security.txt
+data_workflow.txt
