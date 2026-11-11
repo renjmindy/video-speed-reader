@@ -1,0 +1,20 @@
+# AWS CodeBuild spec for the worker image.
+#
+# Trigger: the push webhook created in M4 Step 3f (`PUSH` on `main`).
+# Environment variables set on the CodeBuild project:
+#   - ECR_URI          -> e.g. 123456789012.dkr.ecr.ap-southeast-2.amazonaws.com/subtitle-worker
+#   - AWS_DEFAULT_REGION is injected automatically by CodeBuild.
+# Runs in privilegedMode so docker build works.
+
+version: 0.2
+
+phases:
+  pre_build:
+    commands:
+      - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $ECR_URI
+  build:
+    commands:
+      - docker build -t $ECR_URI:latest ./worker
+  post_build:
+    commands:
+      - docker push $ECR_URI:latest

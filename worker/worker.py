@@ -1,11 +1,19 @@
 """
-M1 worker: polls one job at a time, downloads the video, runs Whisper,
+Worker: polls one job at a time, downloads the video, runs Whisper,
 writes TXT back to job_sessions.subtitle_txt_content.
 
-Started by distributor.py (one Popen per pending job). Reads JOB_ID from env.
-Reads OPENAI_API_KEY / SUPABASE_URL / SUPABASE_SECRET_KEY from AWS Secrets
-Manager — the EC2's IAM instance profile grants `secretsmanager:GetSecretValue`
-on exactly those three secret names, so no credentials ever live on disk.
+Reads JOB_ID from env. The three credentials (OPENAI_API_KEY, SUPABASE_URL,
+SUPABASE_SECRET_KEY) resolve in this order:
+
+  1. If all three are present as env vars → use them.
+     This is the M4 / Fargate path — the Lambda distributor passes them via
+     containerOverrides, and the Fargate worker task role stays minimal
+     (no secretsmanager:GetSecretValue).
+  2. Otherwise → read them from AWS Secrets Manager (M1 / EC2 path).
+     The EC2's IAM instance profile grants secretsmanager:GetSecretValue
+     on exactly those three secret names.
+
+The same image therefore runs under both M1 and M4 without a rebuild.
 """
 import math
 import os
@@ -19,19 +27,25 @@ from openai import OpenAI
 from supabase import create_client
 
 
+_CRED_KEYS = ("OPENAI_API_KEY", "SUPABASE_URL", "SUPABASE_SECRET_KEY")
+_SECRET_NAMES = {
+    "OPENAI_API_KEY": "openai-api-key",
+    "SUPABASE_URL": "supabase-url",
+    "SUPABASE_SECRET_KEY": "supabase-secret-key",
+}
+
+
 def _get_secret(client, name: str) -> str:
     """Fetch one Secrets Manager secret by name (returns the SecretString)."""
     return client.get_secret_value(SecretId=name)["SecretString"]
 
 
 def _load_secrets() -> dict[str, str]:
-    """Pull the three M1 secrets from AWS Secrets Manager."""
+    """Prefer env vars (M4 / Fargate) → fall back to Secrets Manager (M1 / EC2)."""
+    if all(os.environ.get(k) for k in _CRED_KEYS):
+        return {k: os.environ[k] for k in _CRED_KEYS}
     sm = boto3.client("secretsmanager")
-    return {
-        "OPENAI_API_KEY": _get_secret(sm, "openai-api-key"),
-        "SUPABASE_URL": _get_secret(sm, "supabase-url"),
-        "SUPABASE_SECRET_KEY": _get_secret(sm, "supabase-secret-key"),
-    }
+    return {k: _get_secret(sm, _SECRET_NAMES[k]) for k in _CRED_KEYS}
 
 
 _secrets = _load_secrets()
